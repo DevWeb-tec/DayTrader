@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dashboard - Day Trader</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f5f5f5;
+      color: #333;
+    }
+    h1, h2 {
+      color: #00539C;
+    }
+    label {
+      display: inline-block;
+      margin-top: 10px;
+    }
+    input {
+      padding: 5px;
+      margin: 5px;
+    }
+    table {
+      margin-top: 20px;
+      border-collapse: collapse;
+      width: 100%;
+      background: #fff;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #ccc;
+      text-align: center;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background-color: #00539C;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #resultado, #graficos, #conselho {
+      background: white;
+      padding: 15px;
+      margin-top: 30px;
+      border-radius: 8px;
+      box-shadow: 0 0 6px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+  <h1>Dashboard Scores - Day Trader</h1>
+
+  <label>Data de Início:
+    <input type="date" id="dataInicio" />
+  </label>
+  <label>Data de Fim:
+    <input type="date" id="dataFim" />
+  </label>
+
+  <h2>Cadastro de Traders</h2>
+  <form id="formTrader">
+    <label>Nome:
+      <input type="text" id="nomeTrader" required />
+    </label>
+    <label>Gain Diário (R$):
+      <input type="number" id="gainMedio" step="0.01" min="0.01" required />
+    </label>
+    <label>Loss Diário (R$):
+      <input type="number" id="lossMedio" step="0.01" min="0.01" required />
+    </label>
+    <label>Dias Operados:
+      <input type="number" id="diasOperados" required min="1" />
+    </label>
+    <button type="submit">Adicionar Trader</button>
+  </form>
+
+  <table id="tabelaTraders" style="display:none;">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Gain Diário (R$)</th>
+        <th>Loss Diário (R$)</th>
+        <th>Dias Operados</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <button id="btnCalcular" disabled>Calcular Resultado e Mostrar Gráficos</button>
+  <button id="btnPDF" style="display:none;">Gerar PDF</button>
+
+  <div id="resultado" style="display:none;">
+    <h2>Resultados Médios</h2>
+    <p id="resultadoMedia"></p>
+  </div>
+
+  <div id="graficos" style="display:none;">
+    <h2>Gráfico Comparativo</h2>
+    <canvas id="graficoComparativo" height="180"></canvas>
+  </div>
+
+  <div id="conselho" style="display:none;">
+    <h2>Conselho Personalizado</h2>
+    <p id="mensagemConselho"></p>
+  </div>
+
+  <script>
+    const formTrader = document.getElementById('formTrader');
+    const tabelaTraders = document.getElementById('tabelaTraders');
+    const tbody = tabelaTraders.querySelector('tbody');
+    const btnCalcular = document.getElementById('btnCalcular');
+    const btnPDF = document.getElementById('btnPDF');
+    const resultadoMediaP = document.getElementById('resultadoMedia');
+    const dataInicioInput = document.getElementById('dataInicio');
+    const dataFimInput = document.getElementById('dataFim');
+    const conselhoDiv = document.getElementById('conselho');
+    const mensagemConselho = document.getElementById('mensagemConselho');
+    const resultadoDiv = document.getElementById('resultado');
+    const graficosDiv = document.getElementById('graficos');
+    let traders = [];
+
+    formTrader.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const nome = document.getElementById('nomeTrader').value.trim();
+      const gainMedio = parseFloat(document.getElementById('gainMedio').value);
+      const lossMedio = parseFloat(document.getElementById('lossMedio').value);
+      const diasOperados = parseInt(document.getElementById('diasOperados').value);
+
+      if (!nome || isNaN(gainMedio) || isNaN(lossMedio) || isNaN(diasOperados)) {
+        alert('Por favor, preencha todos os campos corretamente.');
+        return;
+      }
+
+      const payoff = gainMedio / lossMedio;
+      const taxaAcerto = payoff / (1 + payoff) * 100;
+
+      traders.push({ nome, gainMedio, lossMedio, diasOperados, payoff, taxaAcerto });
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${nome}</td>
+        <td>R$ ${gainMedio.toFixed(2)}</td>
+        <td>R$ ${lossMedio.toFixed(2)}</td>
+        <td>${diasOperados}</td>
+      `;
+      tbody.appendChild(tr);
+      tabelaTraders.style.display = 'table';
+      formTrader.reset();
+      btnCalcular.disabled = traders.length < 1;
+    });
+
+    let chartComparativo;
+
+    btnCalcular.addEventListener('click', () => {
+      let somaPayoff = 0, somaGain = 0, somaLoss = 0, somaDias = 0, somaAcerto = 0;
+
+      traders.forEach(t => {
+        somaPayoff += t.payoff;
+        somaGain += t.gainMedio;
+        somaLoss += t.lossMedio;
+        somaDias += t.diasOperados;
+        somaAcerto += t.taxaAcerto;
+      });
+
+      const mediaPayoff = somaPayoff / traders.length;
+      const mediaGain = somaGain / traders.length;
+      const mediaLoss = somaLoss / traders.length;
+      const mediaAcerto = somaAcerto / traders.length;
+
+      resultadoMediaP.innerHTML = `
+        <strong>Período:</strong> ${dataInicioInput.value} a ${dataFimInput.value}<br/>
+        <strong>Taxa de Acerto Média:</strong> ${mediaAcerto.toFixed(2)}%<br/>
+        <strong>Payoff Médio:</strong> ${mediaPayoff.toFixed(2)}<br/>
+        <strong>Gain Médio Diário:</strong> R$ ${mediaGain.toFixed(2)}<br/>
+        <strong>Loss Médio Diário:</strong> R$ ${mediaLoss.toFixed(2)}<br/>
+        <strong>Total de Dias Operados:</strong> ${somaDias} dias
+      `;
+
+      gerarConselho(mediaPayoff, mediaGain, mediaLoss);
+      gerarGrafico(mediaPayoff, mediaGain, mediaLoss);
+
+      resultadoDiv.style.display = 'block';
+      graficosDiv.style.display = 'block';
+      conselhoDiv.style.display = 'block';
+      btnPDF.style.display = 'inline-block';
+    });
+
+    function gerarConselho(payoff, gain, loss) {
+      let conselho = "";
+      conselho += payoff < 1.5 
+        ? "⚠️ O payoff médio está baixo. Tente melhorar a relação ganho/perda.<br/>"
+        : "✅ Payoff médio satisfatório.<br/>";
+      conselho += gain < 100 
+        ? "⚠️ O gain médio está abaixo do ideal. Foque em entradas mais rentáveis.<br/>"
+        : "✅ Gain médio está em um bom nível.<br/>";
+      conselho += loss > 100 
+        ? "⚠️ O loss médio está alto. Avalie estratégias para conter perdas.<br/>"
+        : "✅ Controle de perdas adequado.<br/>";
+      mensagemConselho.innerHTML = conselho;
+    }
+
+    function gerarGrafico(payoff, gain, loss) {
+      const ctx = document.getElementById('graficoComparativo').getContext('2d');
+      if (chartComparativo) chartComparativo.destroy();
+      chartComparativo = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Payoff', 'Gain Médio', 'Loss Médio'],
+          datasets: [{
+            label: 'Médias',
+            data: [payoff, gain, loss],
+            backgroundColor: ['#009688', '#4CAF50', '#F44336']
+          }]
+        },
+        options: { scales: { y: { beginAtZero: true } } }
+      });
+    }
+
+    btnPDF.addEventListener('click', () => {
+      html2canvas(document.body).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const width = 210;
+        const height = (canvas.height * width) / canvas.width;
+        pdf.addImage(imgData, 'PNG', 0, 0, width, height);
+        pdf.save('daytrader-scores.pdf');
+      });
+    });
+  </script>
+</body>
+</html>
+
